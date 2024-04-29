@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -603,6 +604,26 @@ func toCQRSRun(run sqlc.FunctionRun, finish sqlc.FunctionFinish) *cqrs.FunctionR
 		copied.EndedAt = &finish.CreatedAt.Time
 	}
 	return &copied
+}
+
+//
+// Trace
+//
+
+func (w wrapper) InsertSpan(ctx context.Context, span cqrs.Span) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (w wrapper) InsertTraceRun(ctx context.Context, run cqrs.TraceRun) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (w wrapper) GetSpansByTraceIDAndRunID(ctx context.Context, tid string, runID ulid.ULID) ([]*cqrs.Span, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (w wrapper) GetTraceRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 // copyWriter allows running duck-db specific functions as CQRS functions, copying CQRS types to DDB types
