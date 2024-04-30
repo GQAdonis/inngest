@@ -356,9 +356,9 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 		var serviceName string
 		rattr := map[string]string{}
 		for k, v := range rs.Resource().Attributes().AsRaw() {
-			value, ok := v.(string)
-			if !ok {
-				log.From(ctx).Warn().Str("resource attr key", k).Interface("resource attr value", v).Msg("non string resource value detected")
+			value, err := anyToString(v)
+			if err != nil {
+				log.From(ctx).Warn().Err(err).Str("resource attr key", k).Interface("resource attr value", v).Msg("error converting resource value to string")
 				continue
 			}
 
@@ -401,10 +401,9 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 
 				sattr := map[string]string{}
 				for k, v := range span.Attributes().AsRaw() {
-					// TODO: convert all type value to string
-					value, ok := v.(string)
-					if !ok {
-						log.From(ctx).Warn().Str("span attr key", k).Interface("span attr value", v).Msg("non string span attribute value detected")
+					value, err := anyToString(v)
+					if err != nil {
+						log.From(ctx).Warn().Err(err).Str("span attr key", k).Interface("span attr value", v).Msg("error converting span attribute value to string")
 						continue
 					}
 					sattr[k] = value
