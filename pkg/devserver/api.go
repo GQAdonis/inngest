@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/api/tel"
+	"github.com/inngest/inngest/pkg/consts"
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/headers"
 	"github.com/inngest/inngest/pkg/inngest"
@@ -23,6 +24,7 @@ import (
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/publicerr"
 	"github.com/inngest/inngest/pkg/sdk"
+	"github.com/oklog/ulid/v2"
 	ptrace "go.opentelemetry.io/collector/pdata/ptrace"
 )
 
@@ -350,12 +352,92 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 
 	for i := 0; i < traces.ResourceSpans().Len(); i++ {
 		rs := traces.ResourceSpans().At(i)
+
+		var serviceName string
+		rattr := map[string]string{}
+		for k, v := range rs.Resource().Attributes().AsRaw() {
+			value, ok := v.(string)
+			if !ok {
+				log.From(ctx).Warn().Str("resource attr key", k).Interface("resource attr value", v).Msg("non string resource value detected")
+				continue
+			}
+
+			if k == "service.name" {
+				serviceName = value
+			}
+			rattr[k] = value
+		}
+
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
 			ss := rs.ScopeSpans().At(j)
+
+			scopeName := ss.Scope().Name()
+			scopeVersion := ss.Scope().Version()
+
 			for k := 0; k < ss.Spans().Len(); k++ {
-				// span := ss.Spans().At(k)
-				// TODO: construct the data to be inserted into the DB
-				// fmt.Printf("Span: %#v\n", span.Name())
+				span := ss.Spans().At(k)
+
+				dur := span.EndTimestamp().AsTime().Sub(span.StartTimestamp().AsTime())
+
+				var psid *string
+				if !span.ParentSpanID().IsEmpty() {
+					id := span.ParentSpanID().String()
+					psid = &id
+				}
+
+				var tracestate *string
+				if span.TraceState().AsRaw() != "" {
+					state := span.TraceState().AsRaw()
+					tracestate = &state
+				}
+
+				var statusmsg *string
+				if span.Status().Message() != "" {
+					msg := span.Status().Message()
+					statusmsg = &msg
+				}
+
+				var runID *ulid.ULID
+
+				sattr := map[string]string{}
+				for k, v := range span.Attributes().AsRaw() {
+					// TODO: convert all type value to string
+					value, ok := v.(string)
+					if !ok {
+						log.From(ctx).Warn().Str("span attr key", k).Interface("span attr value", v).Msg("non string span attribute value detected")
+						continue
+					}
+					sattr[k] = value
+
+					if k == consts.OtelAttrSDKRunID {
+						if rid, err := ulid.Parse(value); err == nil {
+							runID = &rid
+						}
+					}
+				}
+
+				data := cqrs.Span{
+					Timestamp:          span.StartTimestamp().AsTime(),
+					TraceID:            span.TraceID().String(),
+					SpanID:             span.SpanID().String(),
+					ParentSpanID:       psid,
+					TraceState:         tracestate,
+					SpanName:           span.Name(),
+					SpanKind:           span.Kind().String(),
+					ServiceName:        serviceName,
+					ResourceAttributes: rattr,
+					ScopeName:          scopeName,
+					ScopeVersion:       scopeVersion,
+					SpanAttributes:     sattr,
+					Duration:           dur,
+					StatusCode:         span.Status().Code().String(),
+					StatusMessage:      statusmsg,
+					RunID:              runID,
+				}
+
+				if err := a.devserver.data.InsertSpan(ctx, data); err != nil {
+					log.From(ctx).Error().Err(err).Interface("span", data).Msg("error inserting span")
+				}
 			}
 		}
 	}
